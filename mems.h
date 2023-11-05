@@ -13,6 +13,7 @@ REFER DOCUMENTATION FOR MORE DETAILS ON FUNSTIONS AND THEIR FUNCTIONALITY
 #include<stdlib.h>
 #include <sys/mman.h>
 #include<stdbool.h>
+#include<math.h>
 
 
 
@@ -22,6 +23,8 @@ As PAGESIZE can differ system to system we should have flexibility to modify thi
 macro to make the output of all system same and conduct a fair evaluation. 
 */
 #define PAGE_SIZE 4096
+#define PROCESS true
+#define HOLE false
 
 
 /*
@@ -35,6 +38,7 @@ struct MemBlock {
     struct MemBlock* next;
     struct SubBlock* child;
     struct MemBlock* prev;
+    void* PAD;
 };
 
 struct SubBlock {
@@ -42,8 +46,10 @@ struct SubBlock {
     bool type;
     struct SubBlock* next;
     struct SubBlock* prev;
-}
+};
 
+struct MemBlock* freeHead;
+int virtualStart;
 
 /*
 Initializes all the required parameters for the MeMS system. The main parameters to be initialized are:
@@ -54,7 +60,8 @@ Input Parameter: Nothing
 Returns: Nothing
 */
 void mems_init(){
-
+    freeHead = NULL;
+    virtualStart = 0;
 }
 
 
@@ -81,8 +88,88 @@ by adding it to the free list.
 Parameter: The size of the memory the user program wants
 Returns: MeMS Virtual address (that is created by MeMS)
 */ 
-void* mems_malloc(size_t size){
 
+struct MemBlock* newBlock(struct MemBlock* ptr, size_t size, size_t processSize){
+    struct SubBlock* tempSub;
+    tempSub -> type = PROCESS;
+    tempSub -> size = processSize;
+    tempSub -> next = NULL; tempSub-> prev = NULL;
+
+    if(size - processSize > 0){
+        struct SubBlock* tempSub2;
+        tempSub2 -> type = HOLE;
+        tempSub2 -> size = size - processSize;
+        tempSub2 -> next = NULL; tempSub2 -> prev = tempSub;
+        tempSub -> next = tempSub2;
+    }
+    
+    struct MemBlock* tempBlock;
+    tempBlock->size = size;
+    tempBlock->next = NULL; tempBlock -> prev = NULL;
+    tempBlock->child = tempSub;
+
+    if(ptr){
+        ptr -> next = tempBlock;
+        tempBlock -> prev = ptr;
+    }
+
+    return tempBlock;
+}
+
+struct SubBlock* checkHole(struct MemBlock* blockPtr, size_t size, int *virtualAddress){
+    struct SubBlock *subPtr = blockPtr -> child;
+
+    while(subPtr){
+        if(subPtr -> type == HOLE && subPtr -> size >= size) break;
+        *virtualAddress += subPtr -> size;
+        subPtr = subPtr -> next;
+    }
+
+    return subPtr;
+}
+
+void* mems_malloc(size_t size){
+    int virtualAddress = virtualStart;
+    struct MemBlock* blockPtr = freeHead;
+
+    // TO check if any hole could fulfil the requirement.
+    while(blockPtr){
+        struct SubBlock* reqdHole = checkHole(blockPtr, size, &virtualAddress);
+        if(reqdHole){
+            struct SubBlock *nextSub = reqdHole -> next;
+            
+            if(size == reqdHole -> size){
+                reqdHole -> type = PROCESS;
+                return virtualAddress;
+            }
+
+            struct SubBlock* tempSub;
+            tempSub -> type = PROCESS;
+            tempSub -> size = size;
+            tempSub -> next = nextSub; tempSub-> prev = reqdHole;
+            reqdHole -> next = tempSub;
+            if(nextSub) nextSub -> prev = tempSub;
+            reqdHole->size = reqdHole->size - size;
+            virtualAddress += reqdHole->size;
+            
+            return virtualAddress;
+        }
+        if(blockPtr -> next == NULL) break;
+        blockPtr = blockPtr -> next;
+    }
+    
+    
+    // In case there is no hole which could be used by the memory.
+    size_t pageSize = (unsigned long)((double)size/PAGE_SIZE) * PAGE_SIZE;
+
+    blockPtr = newBlock(blockPtr, pageSize, size);
+    blockPtr -> PAD = mmap(NULL, pageSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+
+    if(freeHead == NULL){
+        freeHead = blockPtr;
+    }
+
+    return virtualAddress;
 }
 
 
