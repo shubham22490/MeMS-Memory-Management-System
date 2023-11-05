@@ -11,6 +11,9 @@ REFER DOCUMENTATION FOR MORE DETAILS ON FUNSTIONS AND THEIR FUNCTIONALITY
 // add other headers as required
 #include<stdio.h>
 #include<stdlib.h>
+#include <sys/mman.h>
+#include<stdbool.h>
+
 
 
 /*
@@ -19,6 +22,27 @@ As PAGESIZE can differ system to system we should have flexibility to modify thi
 macro to make the output of all system same and conduct a fair evaluation. 
 */
 #define PAGE_SIZE 4096
+
+
+/*
+Initializing the structure of the block of the Main Linked List and the Sub Linked List.
+The Type in SubBlock.
+false - Hole
+true - proccess
+*/
+struct MemBlock {
+    size_t size;
+    struct MemBlock* next;
+    struct SubBlock* child;
+    struct MemBlock* prev;
+};
+
+struct SubBlock {
+    size_t size;
+    bool type;
+    struct SubBlock* next;
+    struct SubBlock* prev;
+}
 
 
 /*
