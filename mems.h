@@ -13,7 +13,6 @@ REFER DOCUMENTATION FOR MORE DETAILS ON FUNSTIONS AND THEIR FUNCTIONALITY
 #include<stdlib.h>
 #include <sys/mman.h>
 #include<stdbool.h>
-#include<stdint.h>
 
 
 
@@ -52,7 +51,7 @@ struct SubBlock {
 #define subSize sizeof(struct SubBlock)
 
 struct MemBlock* freeHead;
-intptr_t virtualStart;
+int virtualStart;
 int* startHead;
 int* current;
 
@@ -66,7 +65,7 @@ Returns: Nothing
 */
 void mems_init(){
     freeHead = NULL;
-    virtualStart = 0;
+    virtualStart = 1000;
     startHead = (int *)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     current = startHead;
 }
@@ -139,7 +138,7 @@ struct MemBlock* createBlock(size_t size, size_t processSize){
     return tempBlock;
 }
 
-struct SubBlock* checkHole(struct MemBlock* blockPtr, size_t size, intptr_t *virtualAddress){
+struct SubBlock* checkHole(struct MemBlock* blockPtr, size_t size, int *virtualAddress){
     struct SubBlock *subPtr = blockPtr -> child;
 
     while(subPtr){
@@ -152,7 +151,7 @@ struct SubBlock* checkHole(struct MemBlock* blockPtr, size_t size, intptr_t *vir
 }
 
 void* mems_malloc(size_t size){
-    intptr_t virtualAddress = virtualStart;
+    int virtualAddress = virtualStart;
     struct MemBlock* blockPtr = freeHead;
 
     // TO check if any hole could fulfil the requirement.
@@ -215,7 +214,7 @@ Parameter: Nothing
 Returns: Nothing but should print the necessary information on STDOUT
 */
 void mems_print_stats(){
-    
+
 }
 
 
@@ -225,7 +224,21 @@ Parameter: MeMS Virtual address (that is created by MeMS)
 Returns: MeMS physical address mapped to the passed ptr (MeMS virtual address).
 */
 void *mems_get(void*v_ptr){
-    
+    int target = (int) v_ptr;
+    struct MemBlock* blockPtr = freeHead;
+    int vAddress = virtualStart;
+
+    while(blockPtr){
+        if(target < vAddress + blockPtr->parentSize){
+            target = target - vAddress;
+            break;
+        }
+        vAddress += blockPtr->parentSize;
+        blockPtr = blockPtr -> next;
+    }
+
+    void* ans = (void*)((int *)blockPtr -> PAD + target/4);
+    return ans;
 }
 
 
