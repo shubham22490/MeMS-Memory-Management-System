@@ -13,7 +13,7 @@ REFER DOCUMENTATION FOR MORE DETAILS ON FUNSTIONS AND THEIR FUNCTIONALITY
 #include<stdlib.h>
 #include <sys/mman.h>
 #include<stdbool.h>
-#include<math.h>
+#include<stdint.h>
 
 
 
@@ -34,7 +34,7 @@ false - Hole
 true - proccess
 */
 struct MemBlock {
-    size_t size;
+    size_t parentSize;
     struct MemBlock* next;
     struct SubBlock* child;
     struct MemBlock* prev;
@@ -48,8 +48,13 @@ struct SubBlock {
     struct SubBlock* prev;
 };
 
+#define blockSize sizeof(struct MemBlock)
+#define subSize sizeof(struct SubBlock)
+
 struct MemBlock* freeHead;
-int virtualStart;
+intptr_t virtualStart;
+int* startHead;
+int* current;
 
 /*
 Initializes all the required parameters for the MeMS system. The main parameters to be initialized are:
@@ -62,6 +67,8 @@ Returns: Nothing
 void mems_init(){
     freeHead = NULL;
     virtualStart = 0;
+    startHead = (int *)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    current = startHead;
 }
 
 
@@ -89,34 +96,50 @@ Parameter: The size of the memory the user program wants
 Returns: MeMS Virtual address (that is created by MeMS)
 */ 
 
-struct MemBlock* newBlock(struct MemBlock* ptr, size_t size, size_t processSize){
+struct SubBlock* createSub(size_t size, bool type){
+    if(size == 0) return NULL;
     struct SubBlock* tempSub;
-    tempSub -> type = PROCESS;
-    tempSub -> size = processSize;
-    tempSub -> next = NULL; tempSub-> prev = NULL;
 
-    if(size - processSize > 0){
-        struct SubBlock* tempSub2;
-        tempSub2 -> type = HOLE;
-        tempSub2 -> size = size - processSize;
-        tempSub2 -> next = NULL; tempSub2 -> prev = tempSub;
-        tempSub -> next = tempSub2;
+    if(current + subSize > startHead + PAGE_SIZE){
+        startHead = (int *)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        current = startHead;
     }
+
+    tempSub = (struct SubBlock*)current;
+    tempSub -> size = size;
+    tempSub -> type = type;
+    tempSub -> prev = NULL; tempSub -> next = NULL;
+    current += subSize;
     
-    struct MemBlock* tempBlock;
-    tempBlock->size = size;
-    tempBlock->next = NULL; tempBlock -> prev = NULL;
-    tempBlock->child = tempSub;
+    return tempSub;
+}
 
-    if(ptr){
-        ptr -> next = tempBlock;
-        tempBlock -> prev = ptr;
+struct MemBlock* createBlock(size_t size, size_t processSize){
+    struct MemBlock* tempBlock;
+
+    if(current + blockSize > startHead + PAGE_SIZE){
+        startHead = (int *)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        current = startHead;
     }
 
+    tempBlock = (struct MemBlock*)current;
+    current += blockSize;
+    
+    struct SubBlock* tempProcess = createSub(processSize, PROCESS);
+    struct SubBlock* tempHole = createSub(size - processSize, HOLE);
+    
+    if(tempHole) tempHole -> prev = tempProcess;
+    if(tempProcess)tempProcess -> next = tempHole;
+
+    tempBlock -> parentSize = size;
+    tempBlock -> child = tempProcess;
+    tempBlock -> PAD = NULL;
+    tempBlock -> prev = NULL; tempBlock -> next = NULL;
+    
     return tempBlock;
 }
 
-struct SubBlock* checkHole(struct MemBlock* blockPtr, size_t size, int *virtualAddress){
+struct SubBlock* checkHole(struct MemBlock* blockPtr, size_t size, intptr_t *virtualAddress){
     struct SubBlock *subPtr = blockPtr -> child;
 
     while(subPtr){
@@ -129,30 +152,33 @@ struct SubBlock* checkHole(struct MemBlock* blockPtr, size_t size, int *virtualA
 }
 
 void* mems_malloc(size_t size){
-    int virtualAddress = virtualStart;
+    intptr_t virtualAddress = virtualStart;
     struct MemBlock* blockPtr = freeHead;
 
     // TO check if any hole could fulfil the requirement.
     while(blockPtr){
         struct SubBlock* reqdHole = checkHole(blockPtr, size, &virtualAddress);
         if(reqdHole){
-            struct SubBlock *nextSub = reqdHole -> next;
+            struct SubBlock *prevSub = reqdHole -> prev;
             
             if(size == reqdHole -> size){
                 reqdHole -> type = PROCESS;
-                return virtualAddress;
+                void *returType = (void *)virtualAddress;
+                return returType;
             }
 
-            struct SubBlock* tempSub;
-            tempSub -> type = PROCESS;
-            tempSub -> size = size;
-            tempSub -> next = nextSub; tempSub-> prev = reqdHole;
-            reqdHole -> next = tempSub;
-            if(nextSub) nextSub -> prev = tempSub;
+            struct SubBlock* tempSub = createSub(size, PROCESS);
+            if(tempSub) 
+            {
+                tempSub -> next = reqdHole; 
+                tempSub-> prev = prevSub;
+                reqdHole -> prev = tempSub;
+                if(prevSub) prevSub -> next = tempSub;
+            }
             reqdHole->size = reqdHole->size - size;
-            virtualAddress += reqdHole->size;
             
-            return virtualAddress;
+            void *returType = (void *)virtualAddress;
+            return returType;
         }
         if(blockPtr -> next == NULL) break;
         blockPtr = blockPtr -> next;
@@ -160,16 +186,23 @@ void* mems_malloc(size_t size){
     
     
     // In case there is no hole which could be used by the memory.
-    size_t pageSize = (unsigned long)((double)size/PAGE_SIZE) * PAGE_SIZE;
-
-    blockPtr = newBlock(blockPtr, pageSize, size);
+    size_t pageSize = size/PAGE_SIZE;
+    pageSize = size % PAGE_SIZE == 0 ? pageSize : pageSize+1;
+    pageSize = pageSize * PAGE_SIZE;
+    
+    struct MemBlock* tempBlock = createBlock(pageSize, size);
+    if(blockPtr) blockPtr -> next = tempBlock;
+    tempBlock -> prev = blockPtr;
+    blockPtr = tempBlock;
+    
     blockPtr -> PAD = mmap(NULL, pageSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 
     if(freeHead == NULL){
         freeHead = blockPtr;
     }
 
-    return virtualAddress;
+    void *returType = (void *)virtualAddress;
+    return returType;
 }
 
 
@@ -182,7 +215,7 @@ Parameter: Nothing
 Returns: Nothing but should print the necessary information on STDOUT
 */
 void mems_print_stats(){
-
+    
 }
 
 
