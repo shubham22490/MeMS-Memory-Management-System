@@ -78,8 +78,21 @@ Input Parameter: Nothing
 Returns: Nothing
 */
 void mems_finish(){
+    struct MemBlock *head_main = freeHead;
+    while(head_main != NULL)
+    {
+        struct SubBlock *head_sub = head_main->child;
+        while(head_sub!=NULL)
+        {
+            int status = munmap((void*)head_sub,head_sub->size);
+            head_sub=head_sub->next;
+        }
+        munmap((void*)head_main, head_main->parentSize);
+        head_main=head_main->next;
+    }
     
 }
+
 
 
 /*
