@@ -213,8 +213,60 @@ this function print the stats of the MeMS system like
 Parameter: Nothing
 Returns: Nothing but should print the necessary information on STDOUT
 */
-void mems_print_stats(){
+void mems_print_stats() {
+    printf("-----MeMs SYSTEM STATS -----\n");
+    struct MemBlock* blockPtr = freeHead;
+    int vAddress = virtualStart;
+    int pages = 0;
+    int unused = 0;
+    int mainLength = 0;
+    while(blockPtr){
+        mainLength++;
+        printf("MAIN[%d:%d]", vAddress, vAddress+blockPtr->parentSize-1);
+        printf("-> ");
+        pages += (blockPtr->parentSize)/ PAGE_SIZE;
+        
+        struct SubBlock *subPtr = blockPtr -> child;
 
+        while(subPtr){
+            char c = subPtr->type? 'P': 'H';
+            unused += subPtr->type? 0:subPtr->size;
+            printf("%c[%d:%d]", c, vAddress, vAddress+subPtr->size-1);
+            printf(" <-> ");
+            vAddress += subPtr -> size;
+            subPtr = subPtr -> next;
+        }
+        printf("NULL\n");
+        blockPtr = blockPtr -> next;
+    }
+
+    printf("Pages used: \t%d\n", pages);
+    printf("Space unused: \t%d\n", unused);
+    printf("Main chain Length: \t%d\n", mainLength);
+    int subLength[mainLength];
+    int count = 0;
+    int i = 0;
+
+    blockPtr = freeHead;
+    while(blockPtr){
+        struct SubBlock *subPtr = blockPtr -> child;
+        count = 0;
+        while(subPtr){
+            count++;
+            subPtr = subPtr -> next;
+        }
+        subLength[i++] = count;
+        blockPtr = blockPtr -> next;
+    }
+    printf("Sub-chain Length array: [");
+
+    for(int i = 0; i < mainLength; i++){
+        printf("%d, ", subLength[i]);
+    }
+
+    printf("]\n");
+
+    printf("----------------------------\n");
 }
 
 
@@ -223,7 +275,7 @@ Returns the MeMS physical address mapped to ptr ( ptr is MeMS virtual address).
 Parameter: MeMS Virtual address (that is created by MeMS)
 Returns: MeMS physical address mapped to the passed ptr (MeMS virtual address).
 */
-void *mems_get(void*v_ptr){
+void *mems_get(void* v_ptr){
     int target = (int) v_ptr;
     struct MemBlock* blockPtr = freeHead;
     int vAddress = virtualStart;
