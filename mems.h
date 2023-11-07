@@ -300,5 +300,46 @@ Parameter: MeMS Virtual address (that is created by MeMS)
 Returns: nothing
 */
 void mems_free(void *v_ptr){
+    int target = (int)v_ptr;
+    struct MemBlock* blockPtr = freeHead;
+    int vAdress = virtualStart;
+    
+    while(blockPtr){
+        if(target < vAdress + blockPtr->parentSize){
+            struct SubBlock* subPtr = blockPtr -> child;
+            int size = 0;
+            while(subPtr){
+                if(vAdress == target){
+                    break;
+                }
+                subPtr = subPtr -> next;
+                vAdress += subPtr->size;
+            }
+
+            if(subPtr->type){
+                size += subPtr -> size;
+                subPtr -> type = PROCESS;
+                struct SubBlock* prev = subPtr -> prev;
+                if(prev->type == HOLE){
+                    size += prev -> size;
+                    struct SubBlock* pprev = prev-> prev;
+                    if(pprev) pprev -> next = subPtr;
+                    subPtr -> prev = pprev;
+                }
+                struct SubBlock* next = subPtr -> next;
+                if(next -> type == HOLE){
+                    size += next -> size;
+                    struct SubBlock* nnext = next -> next;
+                    if(nnext) nnext -> prev = subPtr;
+                    subPtr -> next = nnext;
+                }
+                subPtr -> size = size;
+                subPtr -> type = HOLE;
+            }
+            break;
+        }
+        vAdress += blockPtr->parentSize;
+        blockPtr = blockPtr -> next;
+    }
     
 }
