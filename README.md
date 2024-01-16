@@ -1,5 +1,3 @@
-# MeMS: Memory Management System
-
 # MeMS - Memory Management System
 
 ## Overview
