@@ -51,5 +51,6 @@ int main(int argc, char const *argv[])
 
     printf("\n--------- Unmapping all memory [mems_finish] --------\n\n");
     mems_finish();
+    mems_print_stats();
     return 0;
 }

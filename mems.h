@@ -54,6 +54,8 @@ struct MemBlock* freeHead;
 int virtualStart;
 int* startHead;
 int* current;
+void* arr[1000];
+int j;
 
 /*
 Initializes all the required parameters for the MeMS system. The main parameters to be initialized are:
@@ -65,8 +67,10 @@ Returns: Nothing
 */
 void mems_init(){
     freeHead = NULL;
+    j = 0;
     virtualStart = 1000;
     startHead = (int *)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    arr[j++] = startHead;
     current = startHead;
 }
 
@@ -81,16 +85,15 @@ void mems_finish(){
     struct MemBlock *head_main = freeHead;
     while(head_main != NULL)
     {
-        struct SubBlock *head_sub = head_main->child;
-        while(head_sub!=NULL)
-        {
-            int status = munmap((void*)head_sub,head_sub->size);
-            head_sub=head_sub->next;
-        }
-        munmap((void*)head_main, head_main->parentSize);
-        head_main=head_main->next;
+        int status = munmap(head_main->PAD, head_main -> parentSize);
+        head_main = head_main -> next;
     }
-    
+
+    int  i = 0;
+    while(i++ < j){
+        int status = munmap((void *)arr[i], PAGE_SIZE);
+        printf("%d ", status);
+    }
 }
 
 
@@ -114,6 +117,7 @@ struct SubBlock* createSub(size_t size, bool type){
 
     if(current + subSize > startHead + PAGE_SIZE){
         startHead = (int *)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        arr[j++] = startHead;
         current = startHead;
     }
 
@@ -131,6 +135,7 @@ struct MemBlock* createBlock(size_t size, size_t processSize){
 
     if(current + blockSize > startHead + PAGE_SIZE){
         startHead = (int *)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        arr[j++] = startHead;
         current = startHead;
     }
 
@@ -321,34 +326,44 @@ void mems_free(void *v_ptr){
         if(target < vAdress + blockPtr->parentSize){
             struct SubBlock* subPtr = blockPtr -> child;
             int size = 0;
+
             while(subPtr){
                 if(vAdress == target){
                     break;
                 }
                 subPtr = subPtr -> next;
-                vAdress += subPtr->size;
+                if(subPtr) vAdress += subPtr->size;
             }
 
-            if(subPtr->type){
-                size += subPtr -> size;
-                subPtr -> type = PROCESS;
-                struct SubBlock* prev = subPtr -> prev;
-                if(prev->type == HOLE){
-                    size += prev -> size;
-                    struct SubBlock* pprev = prev-> prev;
-                    if(pprev) pprev -> next = subPtr;
-                    subPtr -> prev = pprev;
+            if(subPtr){
+                if(subPtr->type){
+                    size += subPtr -> size;
+                    subPtr -> type = PROCESS;
+                    struct SubBlock* prev = subPtr -> prev;
+                    if(prev){
+                        if(prev->type == HOLE){
+                            size += prev -> size;
+                            struct SubBlock* pprev = prev-> prev;
+                            if(pprev) pprev -> next = subPtr;
+                            subPtr -> prev = pprev;
+                        }
+                    }
+                    struct SubBlock* next = subPtr -> next;
+                    if(next){
+                        if(next -> type == HOLE){
+                        size += next -> size;
+                        struct SubBlock* nnext = next -> next;
+                        if(nnext) nnext -> prev = subPtr;
+                        subPtr -> next = nnext;
+                    }
+                    }
+                    
+                    subPtr -> size = size;
+                    subPtr -> type = HOLE;
                 }
-                struct SubBlock* next = subPtr -> next;
-                if(next -> type == HOLE){
-                    size += next -> size;
-                    struct SubBlock* nnext = next -> next;
-                    if(nnext) nnext -> prev = subPtr;
-                    subPtr -> next = nnext;
-                }
-                subPtr -> size = size;
-                subPtr -> type = HOLE;
             }
+
+            
             break;
         }
         vAdress += blockPtr->parentSize;
